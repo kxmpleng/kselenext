@@ -1,0 +1,36 @@
+name: build-kernel
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev cpio zip lz4 python3 git \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+      - name: toolchain
+        run: git clone --depth=1 https://github.com/kdrag0n/proton-clang $HOME/clang
+      - name: build
+        run: |
+          export PATH=$HOME/clang/bin:$PATH
+          make O=out ARCH=arm64 selene_defconfig
+          grep -E "CONFIG_KSU|SUSFS" out/.config || true
+          make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- Image.gz-dtb
+      - name: package
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 ak3
+          cp out/arch/arm64/boot/Image.gz-dtb ak3/
+          cd ak3
+          sed -i 's/^kernel.string=.*/kernel.string=KSUN selene/; s/^device.name1=.*/device.name1=selene/; s/^block=.*/block=boot;/; s/^is_slot_device=.*/is_slot_device=0;/' anykernel.sh
+          zip -r9 ../KSUN-selene.zip * -x .git README.md '*placeholder'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel
+          path: |
+            KSUN-selene.zip
+            out/arch/arm64/boot/Image.gz-dtb
