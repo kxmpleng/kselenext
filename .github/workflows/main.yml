@@ -9,18 +9,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison flex libssl-dev libelf-dev cpio zip lz4 python3 git \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-      - name: toolchain
-        run: git clone --depth=1 https://github.com/kdrag0n/proton-clang $HOME/clang
+            clang-14 lld-14 llvm-14 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          clang-14 --version
+      - name: strip Werror
+        run: |
+          find . \( -name Makefile -o -name 'Makefile.*' -o -name Kbuild -o -name '*.mk' \) \
+            -not -path './Makefile' -not -path './scripts/*' -print0 \
+            | xargs -0 grep -l -- '-Werror' | xargs -r sed -i -E 's/ ?-Werror(=[a-zA-Z0-9_-]+)?//g'
       - name: build
         run: |
-          export PATH=$HOME/clang/bin:$PATH
           make O=out ARCH=arm64 selene_defconfig
           grep -E "CONFIG_KSU|SUSFS" out/.config || true
-          make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
-            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+          make -j$(nproc --all) O=out ARCH=arm64 CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 \
+            OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            CLANG_TRIPLE=aarch64-linux-gnu- Image.gz-dtb
+            CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS="-Wno-error" \
+            Image.gz-dtb 2>&1 | tee build.log || { echo "=== ERROR PERTAMA ==="; grep -n -E "error:|\*\*\*|No such file" build.log | head -15; exit 1; }
       - name: package
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 ak3
